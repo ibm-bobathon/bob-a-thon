@@ -1,85 +1,41 @@
+import listeners from "./listeners.js";
+
 /**
  * This is the main entrypoint to your Probot app
  * @param {import('probot').Probot} app
  */
-export default (app) => {
-  app.log.info("GitHub PR Comment Bot loaded!");
+export default (app, { getRouter }) => {
+  app.log.info("GitHub PR Diff Forwarder Bot loaded!");
 
-  app.on(
-    ["pull_request.opened", "pull_request.synchronize"],
-    async (context) => {
-      const { pull_request } = context.payload;
-      
-      app.log.info(`Processing PR #${pull_request.number}: ${pull_request.title}`);
+  // Set up the internal endpoint route
+  const router = getRouter("/");
 
-      try {
-        // Get the files changed in the PR
-        const files = await context.octokit.pulls.listFiles({
-          ...context.repo(),
-          pull_number: pull_request.number,
-        });
+  // POST /pull_request - Internal endpoint for LLM processing
+  router.post("/pull_request", (req, res) => {
+    try {
+      app.log.info("Received request at /pull_request endpoint");
 
-        if (files.data.length === 0) {
-          app.log.info("No files changed in this PR");
-          return;
-        }
-
-        // Find the first file with changes
-        const firstFile = files.data[0];
-        app.log.info(`First changed file: ${firstFile.filename}`);
-
-        // Get the diff for detailed analysis
-        const diffResponse = await context.octokit.pulls.get({
-          ...context.repo(),
-          pull_number: pull_request.number,
-          mediaType: {
-            format: "diff",
+      // For now, return the stub response
+      const stubResponse = {
+        comments: [
+          {
+            path: "githubagent/index.js",
+            line: 15,
+            body: "🤖 LLM Suggestion: Consider adding error handling for this API call.",
           },
-        });
+          {
+            path: "githubagent/README.md",
+            line: 5,
+            body: "📝 LLM Suggestion: Could you please add a link to the documentation here?",
+          },
+        ],
+      };
 
-        // Get comprehensive PR analysis with all file contents and diffs
-        const prAnalysis = await getComprehensivePRAnalysis(context, pull_request, files.data, diffResponse.data);
-        
-        app.log.info(`PR Analysis complete:`, {
-          totalFiles: prAnalysis.summary.totalFiles,
-          added: prAnalysis.summary.addedFiles,
-          modified: prAnalysis.summary.modifiedFiles,
-          removed: prAnalysis.summary.removedFiles
-        });
-        
-        // For now, just log the analysis - you can add LLM integration here later
-        app.log.debug('Full PR Analysis:', JSON.stringify(prAnalysis, null, 2));
-        
-        // Example: Create a single comment with summary
-        const summaryComment = `## PR Analysis Summary
-        
-**Files Changed:** ${prAnalysis.summary.totalFiles}
-- 🟢 Added: ${prAnalysis.summary.addedFiles}
-- 🟡 Modified: ${prAnalysis.summary.modifiedFiles}  
-- 🔴 Removed: ${prAnalysis.summary.removedFiles}
-
-**Ready for LLM analysis with full context and diffs!**`;
-
-        await context.octokit.issues.createComment({
-          ...context.repo(),
-          issue_number: pull_request.number,
-          body: summaryComment
-        });
-
-        app.log.info(`Successfully analyzed PR #${pull_request.number}`);
-      } catch (error) {
-        app.log.error("Error processing pull request:", {
-          pr: pull_request.number,
-          error: error.message,
-          stack: error.stack
-        });
-      }
+      res.json(stubResponse);
+    } catch (error) {
+      app.log.error("Error processing pull request:", error.message);
+      res.status(500).json({ error: "Internal server error" });
     }
-  );
-
-  // Add debugging for all webhook events
-  app.onAny(async (context) => {
-    app.log.debug(`Received webhook: ${context.name}.${context.payload.action || 'no-action'}`);
   });
 
   async function getComprehensivePRAnalysis(context, pull_request, files, fullDiff) {
