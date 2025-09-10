@@ -1,0 +1,32 @@
+name: Intentional Failure Workflow
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+    types: [ opened, synchronize, reopened ]
+
+jobs:
+  fail-job:
+    name: Intentionally Failing Job
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Display information before failing
+        run: |
+          echo "This is a test workflow that will intentionally fail"
+          echo "Repository: ${{ github.repository }}"
+          echo "Event name: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "Workflow triggered by: ${{ github.actor }}"
+          
+      - name: Intentionally fail
+        run: |
+          echo "This step will exit with code 1 to simulate a failure"
+          exit 1
+
+# Made with Bob
