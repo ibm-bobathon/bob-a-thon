@@ -134,11 +134,11 @@ ${rawDiff}
           "User-Agent": "GitHub-PR-Diff-Bot/1.0",
         },
         body: JSON.stringify(payload),
-      }).catch(fetchError => {
+      }).catch((fetchError) => {
         logger.error("Fetch error details:", {
           message: fetchError.message,
           code: fetchError.code,
-          cause: fetchError.cause
+          cause: fetchError.cause,
         });
         throw fetchError;
       });
@@ -169,7 +169,7 @@ ${rawDiff}
         errorName: error.name,
         errorCode: error.code,
         pr: pullRequest.number,
-        stack: error.stack
+        stack: error.stack,
       });
 
       // Fallback to stub data if endpoint fails
