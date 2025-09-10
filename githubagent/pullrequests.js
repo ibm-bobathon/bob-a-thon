@@ -31,18 +31,34 @@ export default (app) => {
           `Retrieved diff for PR #${pull_request.number}, length: ${rawDiff.length} characters`
         );
 
+        // Get the list of files changed in the PR
+        const filesResponse = await context.octokit.pulls.listFiles({
+          owner,
+          repo,
+          pull_number: pull_request.number,
+        });
+
+        const changedFiles = filesResponse.data.map(file => file.filename);
+        console.log("🚀 PULLREQUEST: Files changed in PR:", changedFiles);
+
         // Format the diff as LLM-readable data
         const summaryContent = formatDiffForReview(rawDiff, pull_request);
 
         // Call the review agent directly
         app.log.info("Sending PR to review agent for analysis...");
+        console.log("🚀 PULLREQUEST: About to call reviewPullRequest");
+        console.log("🚀 PULLREQUEST: Summary content keys:", Object.keys(summaryContent));
         app.log.debug("Summary content being sent to review agent:", JSON.stringify(summaryContent, null, 2));
         
         let reviewResult;
         try {
+          console.log("🚀 PULLREQUEST: Calling reviewPullRequest...");
           reviewResult = await reviewPullRequest(summaryContent);
+          console.log("🚀 PULLREQUEST: reviewPullRequest completed");
+          console.log("🚀 PULLREQUEST: Review result:", JSON.stringify(reviewResult, null, 2));
           app.log.debug("Review agent response:", JSON.stringify(reviewResult, null, 2));
         } catch (reviewError) {
+          console.error("🚀 PULLREQUEST: reviewPullRequest threw an error:", reviewError);
           app.log.error("Review agent failed with error:", {
             error: reviewError.message,
             stack: reviewError.stack,
@@ -53,23 +69,43 @@ export default (app) => {
         }
         
         if (reviewResult.success && reviewResult.comments.length > 0) {
-          // Create inline comments based on review agent response
-          await createInlineComments(
-            context,
-            reviewResult.comments,
-            pull_request,
-            app
+          // Filter comments to only include files that exist in the PR
+          const validComments = reviewResult.comments.filter(comment => 
+            changedFiles.includes(comment.path)
           );
-          app.log.info(
-            `Successfully processed PR #${pull_request.number} and created ${reviewResult.comments.length} comments`
+          console.log("🚀 PULLREQUEST: Valid comments after filtering:", validComments.length);
+          console.log("🚀 PULLREQUEST: Filtered out comments for files:", 
+            reviewResult.comments.filter(comment => !changedFiles.includes(comment.path))
+              .map(c => c.path)
           );
+
+          if (validComments.length > 0) {
+            // Create inline comments based on review agent response
+            await createInlineComments(
+              context,
+              validComments,
+              pull_request,
+              app.log
+            );
+            console.log("🚀 PULLREQUEST: createInlineComments completed");
+            console.log("🚀 PULLREQUEST: About to log review results...");
+            app.log.info(
+              `Successfully processed PR #${pull_request.number} and created ${validComments.length} comments`
+            );
+          } else {
+            console.log("🚀 PULLREQUEST: No valid comments to create after filtering");
+            app.log.info(
+              `Successfully processed PR #${pull_request.number} but no valid comments after file filtering`
+            );
+          }
           
           // Log the review results for debugging
           console.log("=== REVIEW AGENT RESULTS ===");
           console.log(JSON.stringify({
             success: reviewResult.success,
             commentsGenerated: reviewResult.comments.length,
-            comments: reviewResult.comments
+            validComments: validComments.length,
+            comments: validComments
           }, null, 2));
           console.log("=== END REVIEW RESULTS ===");
         } else {
@@ -147,6 +183,13 @@ export default (app) => {
     for (let i = 0; i < comments.length; i++) {
       const comment = comments[i];
 
+      console.log("🚀 PULLREQUEST: Creating comment", i + 1, "of", comments.length);
+      console.log("🚀 PULLREQUEST: Comment details:", {
+        path: comment.path,
+        line: comment.line,
+        body: comment.body?.substring(0, 100) + "..."
+      });
+
       try {
         logger.info(
           `Creating inline comment ${i + 1}/${comments.length} on ${
@@ -170,6 +213,14 @@ export default (app) => {
           }`
         );
       } catch (error) {
+        // Add this right after the catch block in createInlineComments
+        console.log("🚀 PULLREQUEST: Error caught in createInlineComments:", {
+          errorMessage: error.message,
+          errorStatus: error.status,
+          errorStack: error.stack,
+          commentPath: comment.path,
+          commentLine: comment.line
+        });
         errorCount++;
         logger.error(`Failed to create comment ${i + 1}:`, {
           path: comment.path,
