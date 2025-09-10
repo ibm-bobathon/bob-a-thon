@@ -3,7 +3,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import dotenv from "dotenv";
 dotenv.config();
 
-const LLM_MODEL = "gpt-5-nano"; // Using a more reliable model
+const LLM_MODEL = "gpt-4o-mini"; // Using a more reliable model
 
 const model = new ChatOpenAI({
     model: LLM_MODEL

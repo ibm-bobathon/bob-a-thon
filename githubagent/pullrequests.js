@@ -1,3 +1,5 @@
+import { reviewPullRequest } from "./review.js";
+
 /**
  * Pull request event listeners and handlers
  * @param {import('probot').Probot} app
@@ -29,37 +31,50 @@ export default (app) => {
           `Retrieved diff for PR #${pull_request.number}, length: ${rawDiff.length} characters`
         );
 
-        // Format the diff as LLM-readable markdown
-        const markdownFormattedDiff = formatDiffAsMarkdown(
-          rawDiff,
-          pull_request
-        );
+        // Format the diff as LLM-readable data
+        const summaryContent = formatDiffForReview(rawDiff, pull_request);
 
-        // Transmit the formatted diff to the internal endpoint and get LLM response
-        const llmResponse = await sendDiffToEndpoint(
-          markdownFormattedDiff,
-          pull_request,
-          app
-        );
-
-        if (
-          llmResponse &&
-          llmResponse.comments &&
-          llmResponse.comments.length > 0
-        ) {
-          // Create inline comments based on LLM response
+        // Call the review agent directly
+        app.log.info("Sending PR to review agent for analysis...");
+        app.log.debug("Summary content being sent to review agent:", JSON.stringify(summaryContent, null, 2));
+        
+        let reviewResult;
+        try {
+          reviewResult = await reviewPullRequest(summaryContent);
+          app.log.debug("Review agent response:", JSON.stringify(reviewResult, null, 2));
+        } catch (reviewError) {
+          app.log.error("Review agent failed with error:", {
+            error: reviewError.message,
+            stack: reviewError.stack,
+            summaryContentKeys: Object.keys(summaryContent)
+          });
+          // Continue with empty result to avoid crashing
+          reviewResult = { success: false, comments: [], error: reviewError.message };
+        }
+        
+        if (reviewResult.success && reviewResult.comments.length > 0) {
+          // Create inline comments based on review agent response
           await createInlineComments(
             context,
-            llmResponse.comments,
+            reviewResult.comments,
             pull_request,
             app
           );
           app.log.info(
-            `Successfully processed PR #${pull_request.number} and created ${llmResponse.comments.length} comments`
+            `Successfully processed PR #${pull_request.number} and created ${reviewResult.comments.length} comments`
           );
+          
+          // Log the review results for debugging
+          console.log("=== REVIEW AGENT RESULTS ===");
+          console.log(JSON.stringify({
+            success: reviewResult.success,
+            commentsGenerated: reviewResult.comments.length,
+            comments: reviewResult.comments
+          }, null, 2));
+          console.log("=== END REVIEW RESULTS ===");
         } else {
           app.log.info(
-            `Successfully processed PR #${pull_request.number} but received no valid comments from LLM`
+            `Successfully processed PR #${pull_request.number} but received no valid comments from review agent`
           );
         }
       } catch (error) {
@@ -73,180 +88,50 @@ export default (app) => {
   );
 
   /**
-   * Format the raw diff as LLM-readable markdown
+   * Format the raw diff for the review agent
    * @param {string} rawDiff - The raw diff string from GitHub
    * @param {object} pullRequest - The pull request object
-   * @returns {string} - Markdown formatted diff
+   * @returns {object} - Structured data for review agent
    */
-  function formatDiffAsMarkdown(rawDiff, pullRequest) {
-    const markdownDiff = `# Pull Request Diff
-
-**Repository:** ${pullRequest.base.repo.full_name}
-**PR Number:** #${pullRequest.number}
-**Title:** ${pullRequest.title}
-**Author:** ${pullRequest.user.login}
-**Base Branch:** ${pullRequest.base.ref}
-**Head Branch:** ${pullRequest.head.ref}
-
-## Diff Content
-
-\`\`\`diff
-${rawDiff}
-\`\`\`
-`;
-
-    return markdownDiff;
-  }
-
-  /**
-   * Send the formatted diff to the internal endpoint and handle LLM response
-   * @param {string} formattedDiff - The markdown formatted diff
-   * @param {object} pullRequest - The pull request object
-   * @param {object} logger - The app logger
-   */
-  async function sendDiffToEndpoint(formattedDiff, pullRequest, logger) {
-    const endpoint =
-      process.env.INTERNAL_ENDPOINT ||
-      `http://localhost:${process.env.PORT || 3000}/pull_request`;
-
-    const payload = {
-      diff_content: formattedDiff,
-      metadata: {
-        repository: pullRequest.base.repo.full_name,
-        pr_number: pullRequest.number,
-        title: pullRequest.title,
-        author: pullRequest.user.login,
-        base_branch: pullRequest.base.ref,
-        head_branch: pullRequest.head.ref,
-        head_sha: pullRequest.head.sha,
-        created_at: pullRequest.created_at,
-        updated_at: pullRequest.updated_at,
-      },
-    };
-
-    try {
-      logger.info(`Sending diff to endpoint: ${endpoint}`);
-
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": "GitHub-PR-Diff-Bot/1.0",
-        },
-        body: JSON.stringify(payload),
-      }).catch((fetchError) => {
-        logger.error("Fetch error details:", {
-          message: fetchError.message,
-          code: fetchError.code,
-          cause: fetchError.cause,
-        });
-        throw fetchError;
-      });
-
-      if (!response.ok) {
-        // For now, if the endpoint is not available, return stub data
-        if (response.status === 404 || response.status >= 500) {
-          logger.warn(
-            `Endpoint not available (${response.status}), using stub data`
-          );
-          return getStubLLMResponse();
-        }
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const responseText = await response.text();
-      logger.info(
-        `Received response from endpoint, length: ${responseText.length} characters`
-      );
-
-      // Parse and validate the LLM response
-      const llmResponse = parseLLMResponse(responseText, logger);
-      return llmResponse;
-    } catch (error) {
-      logger.error("Error communicating with endpoint:", {
-        endpoint,
-        error: error.message,
-        errorName: error.name,
-        errorCode: error.code,
-        pr: pullRequest.number,
-        stack: error.stack,
-      });
-
-      // Fallback to stub data if endpoint fails
-      logger.info("Falling back to stub data due to endpoint error");
-      return getStubLLMResponse();
-    }
-  }
-
-  /**
-   * Parse and validate the LLM response JSON
-   * @param {string} responseText - The raw response text from the endpoint
-   * @param {object} logger - The app logger
-   * @returns {object|null} - Parsed and validated response or null if invalid
-   */
-  function parseLLMResponse(responseText, logger) {
-    try {
-      const parsedResponse = JSON.parse(responseText);
-
-      // Validate the response structure
-      if (!parsedResponse || typeof parsedResponse !== "object") {
-        throw new Error("Response is not a valid object");
-      }
-
-      if (!Array.isArray(parsedResponse.comments)) {
-        throw new Error("Response does not contain a valid comments array");
-      }
-
-      // Validate each comment object
-      for (let i = 0; i < parsedResponse.comments.length; i++) {
-        const comment = parsedResponse.comments[i];
-
-        if (!comment.path || typeof comment.path !== "string") {
-          throw new Error(`Comment ${i}: 'path' must be a non-empty string`);
-        }
-
-        if (!Number.isInteger(comment.line) || comment.line < 1) {
-          throw new Error(`Comment ${i}: 'line' must be a positive integer`);
-        }
-
-        if (!comment.body || typeof comment.body !== "string") {
-          throw new Error(`Comment ${i}: 'body' must be a non-empty string`);
-        }
-      }
-
-      logger.info(
-        `Validated LLM response with ${parsedResponse.comments.length} comments`
-      );
-      return parsedResponse;
-    } catch (error) {
-      logger.error("Error parsing LLM response:", {
-        error: error.message,
-        responsePreview: responseText.substring(0, 200),
-      });
-      return null;
-    }
-  }
-
-  /**
-   * Get stub LLM response for testing
-   * @returns {object} - Stub response with sample comments
-   */
-  function getStubLLMResponse() {
+  function formatDiffForReview(rawDiff, pullRequest) {
     return {
-      comments: [
-        {
-          path: "src/app.js",
-          line: 15,
-          body: "Consider adding error handling for this API call.",
+      prInfo: {
+        number: pullRequest.number,
+        title: pullRequest.title,
+        baseSha: pullRequest.base.sha,
+        headSha: pullRequest.head.sha,
+        baseRef: pullRequest.base.ref,
+        headRef: pullRequest.head.ref
+      },
+      summary: {
+        totalFiles: 1, // We'll improve this later with proper file parsing
+        addedFiles: 0,
+        modifiedFiles: 1,
+        removedFiles: 0
+      },
+      files: {
+        added: {},
+        modified: {
+          "diff": {
+            beforeContent: "See diff below",
+            afterContent: "See diff below", 
+            diff: rawDiff,
+            metadata: {
+              additions: 0,
+              deletions: 0,
+              changes: 0
+            }
+          }
         },
-        {
-          path: "README.md",
-          line: 5,
-          body: "Could you please add a link to the documentation here?",
-        },
-      ],
+        removed: {}
+      },
+      diffs: {
+        unified: rawDiff,
+        parsed: {}
+      }
     };
   }
+
 
   /**
    * Create inline comments on the pull request based on LLM response
