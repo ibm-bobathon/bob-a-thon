@@ -38,6 +38,74 @@ export default (app, { getRouter }) => {
     }
   });
 
+  // Add PR event listeners
+  app.on(
+    ["pull_request.opened", "pull_request.synchronize"],
+    async (context) => {
+      const { pull_request } = context.payload;
+      
+      app.log.info(`Processing PR #${pull_request.number}: ${pull_request.title}`);
+
+      try {
+        // Get the files changed in the PR
+        const files = await context.octokit.pulls.listFiles({
+          ...context.repo(),
+          pull_number: pull_request.number,
+        });
+
+        if (files.data.length === 0) {
+          app.log.info("No files changed in this PR");
+          return;
+        }
+
+        // Get the diff for detailed analysis
+        const diffResponse = await context.octokit.pulls.get({
+          ...context.repo(),
+          pull_number: pull_request.number,
+          mediaType: {
+            format: "diff",
+          },
+        });
+
+        // Get comprehensive PR analysis with all file contents and diffs
+        const prAnalysis = await getComprehensivePRAnalysis(context, pull_request, files.data, diffResponse.data);
+        
+        // Create summaryContent object with all the data
+        const summaryContent = {
+          prInfo: {
+            number: pull_request.number,
+            title: pull_request.title,
+            baseSha: pull_request.base.sha,
+            headSha: pull_request.head.sha,
+            baseRef: pull_request.base.ref,
+            headRef: pull_request.head.ref
+          },
+          summary: {
+            totalFiles: prAnalysis.summary.totalFiles,
+            addedFiles: prAnalysis.summary.addedFiles,
+            modifiedFiles: prAnalysis.summary.modifiedFiles,
+            removedFiles: prAnalysis.summary.removedFiles
+          },
+          files: prAnalysis.files,
+          diffs: prAnalysis.diffs
+        };
+
+        // Log the complete summary to console
+        console.log("=== COMPREHENSIVE PR ANALYSIS ===");
+        console.log(JSON.stringify(summaryContent, null, 2));
+        console.log("=== END PR ANALYSIS ===");
+
+        app.log.info(`Successfully analyzed PR #${pull_request.number} - ${summaryContent.summary.totalFiles} files processed`);
+      } catch (error) {
+        app.log.error("Error processing pull request:", {
+          pr: pull_request.number,
+          error: error.message,
+          stack: error.stack
+        });
+      }
+    }
+  );
+
   async function getComprehensivePRAnalysis(context, pull_request, files, fullDiff) {
     app.log.info("Starting comprehensive PR analysis...");
     
