@@ -57,11 +57,6 @@ export default (app, { getRouter }) => {
           diffs: prAnalysis.diffs
         };
 
-        // Log the complete summary to console
-        console.log("=== COMPREHENSIVE PR ANALYSIS ===");
-        console.log(JSON.stringify(summaryContent, null, 2));
-        console.log("=== END PR ANALYSIS ===");
-
         // Use the review agent to analyze the PR and generate comments
         app.log.info("Sending PR to review agent for analysis...");
         const reviewResult = await reviewPullRequest(summaryContent);
