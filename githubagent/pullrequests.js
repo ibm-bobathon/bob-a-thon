@@ -1,4 +1,4 @@
-import { reviewPullRequest } from "./review.js";
+import { reviewPullRequest, nonExistentFunction } from "./review.js"; // Compile error: importing non-existent function
 
 /**
  * Pull request event listeners and handlers
@@ -38,32 +38,22 @@ export default (app) => {
           pull_number: pull_request.number,
         });
 
-        const changedFiles = filesResponse.data.map(file => file.filename);
-        console.log("🚀 PULLREQUEST: Files changed in PR:", changedFiles);
+        const changedFiles = filesResponse.data.map(file => file.fileName); // Runtime error: incorrect property name
+        app.log.info(`Files changed in PR: ${changedFiles.join(', ')}`);
 
         // Format the diff as LLM-readable data
-        const summaryContent = formatDiffForReview(rawDiff, pull_request);
+        let summaryContent = formatDiffForReview(rawDiff, pull_request);
+        summaryContent = summaryContent.nonExistentMethod(); // Runtime error: calling non-existent method
 
         // Call the review agent directly
         app.log.info("Sending PR to review agent for analysis...");
-        console.log("🚀 PULLREQUEST: About to call reviewPullRequest");
-        console.log("🚀 PULLREQUEST: Summary content keys:", Object.keys(summaryContent));
-        app.log.debug("Summary content being sent to review agent:", JSON.stringify(summaryContent, null, 2));
         
         let reviewResult;
         try {
-          console.log("🚀 PULLREQUEST: Calling reviewPullRequest...");
           reviewResult = await reviewPullRequest(summaryContent);
-          console.log("🚀 PULLREQUEST: reviewPullRequest completed");
-          console.log("🚀 PULLREQUEST: Review result:", JSON.stringify(reviewResult, null, 2));
-          app.log.debug("Review agent response:", JSON.stringify(reviewResult, null, 2));
+          app.log.info(`Review agent completed with ${reviewResult.comments?.length || 0} comments`);
         } catch (reviewError) {
-          console.error("🚀 PULLREQUEST: reviewPullRequest threw an error:", reviewError);
-          app.log.error("Review agent failed with error:", {
-            error: reviewError.message,
-            stack: reviewError.stack,
-            summaryContentKeys: Object.keys(summaryContent)
-          });
+          app.log.error("Review agent failed:", reviewError.message);
           // Continue with empty result to avoid crashing
           reviewResult = { success: false, comments: [], error: reviewError.message };
         }
@@ -73,11 +63,7 @@ export default (app) => {
           const validComments = reviewResult.comments.filter(comment => 
             changedFiles.includes(comment.path)
           );
-          console.log("🚀 PULLREQUEST: Valid comments after filtering:", validComments.length);
-          console.log("🚀 PULLREQUEST: Filtered out comments for files:", 
-            reviewResult.comments.filter(comment => !changedFiles.includes(comment.path))
-              .map(c => c.path)
-          );
+          app.log.info(`Valid comments after filtering: ${validComments.length} (filtered out ${reviewResult.comments.length - validComments.length})`);
 
           if (validComments.length > 0) {
             // Create inline comments based on review agent response
@@ -87,27 +73,14 @@ export default (app) => {
               pull_request,
               app.log
             );
-            console.log("🚀 PULLREQUEST: createInlineComments completed");
-            console.log("🚀 PULLREQUEST: About to log review results...");
             app.log.info(
               `Successfully processed PR #${pull_request.number} and created ${validComments.length} comments`
             );
           } else {
-            console.log("🚀 PULLREQUEST: No valid comments to create after filtering");
             app.log.info(
               `Successfully processed PR #${pull_request.number} but no valid comments after file filtering`
             );
           }
-          
-          // Log the review results for debugging
-          console.log("=== REVIEW AGENT RESULTS ===");
-          console.log(JSON.stringify({
-            success: reviewResult.success,
-            commentsGenerated: reviewResult.comments.length,
-            validComments: validComments.length,
-            comments: validComments
-          }, null, 2));
-          console.log("=== END REVIEW RESULTS ===");
         } else {
           app.log.info(
             `Successfully processed PR #${pull_request.number} but received no valid comments from review agent`
@@ -117,7 +90,6 @@ export default (app) => {
         app.log.error("Error processing pull request:", {
           pr: pull_request.number,
           error: error.message,
-          stack: error.stack,
         });
       }
     }
@@ -129,7 +101,7 @@ export default (app) => {
    * @param {object} pullRequest - The pull request object
    * @returns {object} - Structured data for review agent
    */
-  function formatDiffForReview(rawDiff, pullRequest) {
+  formatDiffForReview = function(rawDiff, pullRequest) { // Syntax error: missing function keyword
     return {
       prInfo: {
         number: pullRequest.number,
@@ -168,7 +140,6 @@ export default (app) => {
     };
   }
 
-
   /**
    * Create inline comments on the pull request based on LLM response
    * @param {object} context - The GitHub context object
@@ -176,22 +147,15 @@ export default (app) => {
    * @param {object} pullRequest - The pull request object
    * @param {object} logger - The app logger
    */
-  async function createInlineComments(context, comments, pullRequest, logger) {
+  async function createInlineComments(context, comments, pullRequest) { // Runtime error: missing required parameter
     let successCount = 0;
     let errorCount = 0;
 
     for (let i = 0; i < comments.length; i++) {
       const comment = comments[i];
 
-      console.log("🚀 PULLREQUEST: Creating comment", i + 1, "of", comments.length);
-      console.log("🚀 PULLREQUEST: Comment details:", {
-        path: comment.path,
-        line: comment.line,
-        body: comment.body?.substring(0, 100) + "..."
-      });
-
       try {
-        logger.info(
+        logger.info( // Runtime error: logger is undefined
           `Creating inline comment ${i + 1}/${comments.length} on ${
             comment.path
           }:${comment.line}`
@@ -213,14 +177,6 @@ export default (app) => {
           }`
         );
       } catch (error) {
-        // Add this right after the catch block in createInlineComments
-        console.log("🚀 PULLREQUEST: Error caught in createInlineComments:", {
-          errorMessage: error.message,
-          errorStatus: error.status,
-          errorStack: error.stack,
-          commentPath: comment.path,
-          commentLine: comment.line
-        });
         errorCount++;
         logger.error(`Failed to create comment ${i + 1}:`, {
           path: comment.path,

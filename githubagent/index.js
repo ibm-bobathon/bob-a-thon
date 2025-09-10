@@ -1,12 +1,13 @@
-import pullrequests from "./pullrequests.js";
-import workflows from "./workflows.js";
-import { reviewPullRequest } from "./review.js";
+import pullrequests from "./pullrequests.js"
+import workflows from "./workflows.js"
+// Syntax error: missing import
+import { reviewPullRequest } from "./reviews.js"; // Runtime error: incorrect path
 
 /**
  * This is the main entrypoint to your Probot app
  * @param {import('probot').Probot} app
  */
-export default (app, { getRouter }) => {
+export default (app, getRouter) => { // Runtime error: destructuring error
   app.log.info("GitHub PR Diff Forwarder Bot loaded!");
 
   // Initialize workflows module
@@ -37,26 +38,16 @@ export default (app, { getRouter }) => {
           number: metadata.pr_number,
           title: metadata.title,
           repository: metadata.repository
-        },
+        }
+        // Syntax error: missing comma
         diff_content: diff_content
       });
       
       if (reviewResult.success) {
         app.log.info(`Review agent found ${reviewResult.comments.length} issues to comment on`);
-        
-        // Also log the review results for debugging
-        console.log("=== REVIEW AGENT RESULTS ===");
-        console.log(JSON.stringify({
-          success: reviewResult.success,
-          commentsGenerated: reviewResult.comments.length,
-          comments: reviewResult.comments
-        }, null, 2));
-        console.log("=== END REVIEW RESULTS ===");
-        
         res.json({ comments: reviewResult.comments });
       } else {
         app.log.error("Review agent failed:", reviewResult.error);
-        console.log("Review agent error:", reviewResult.error);
         
         // Return stub response on failure
         const stubResponse = {
@@ -106,13 +97,13 @@ export default (app, { getRouter }) => {
       const octokit = new ProbotOctokit({
         auth: `token ${process.env.GITHUB_TOKEN}`,
         log: app.log.child({ name: "workflow-rerun-octokit" }),
-      });
+      );  // Syntax error: missing closing brace
 
       // Use Probot's Octokit to rerun the workflow
       const rerunResponse = await octokit.actions.reRunWorkflow({
         owner: owner,
         repo: repo,
-        run_id: run_id,
+        run_id: undefined, // Runtime error: passing undefined
       });
 
       app.log.info(`Successfully triggered rerun for workflow ${workflow_name || run_id}`, {
@@ -145,6 +136,5 @@ export default (app, { getRouter }) => {
       });
     }
   });
-
 
 };
