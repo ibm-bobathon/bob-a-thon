@@ -76,5 +76,75 @@ export default (app, { getRouter }) => {
     }
   });
 
+  // POST /workflow-rerun - Endpoint to rerun failed workflows
+  router.post("/workflow-rerun", async (req, res) => {
+    try {
+      app.log.info("Received workflow rerun request");
+
+      // Only need these minimal fields to rerun a workflow
+      const { owner, repo, run_id, workflow_name } = req.body;
+      
+      if (!owner || !repo || !run_id) {
+        return res.status(400).json({ 
+          error: "Missing required fields: owner, repo, run_id",
+          example: {
+            owner: "ibm-bobathon",
+            repo: "bob-a-thon", 
+            run_id: 17623574042,
+            workflow_name: "Intentional Failure Workflow" // optional for logging
+          }
+        });
+      }
+
+      // Construct the workflow HTML URL
+      const workflowUrl = `https://github.com/${owner}/${repo}/actions/runs/${run_id}`;
+
+      app.log.info(`Attempting to rerun workflow: ${workflow_name || 'Unknown'} (#${run_id})`);
+
+      // Create a Probot Octokit instance to make authenticated requests
+      const { ProbotOctokit } = await import("probot");
+      const octokit = new ProbotOctokit({
+        auth: `token ${process.env.GITHUB_TOKEN}`,
+        log: app.log.child({ name: "workflow-rerun-octokit" }),
+      });
+
+      // Use Probot's Octokit to rerun the workflow
+      const rerunResponse = await octokit.actions.reRunWorkflow({
+        owner: owner,
+        repo: repo,
+        run_id: run_id,
+      });
+
+      app.log.info(`Successfully triggered rerun for workflow ${workflow_name || run_id}`, {
+        status: rerunResponse.status,
+        workflow_id: run_id
+      });
+      
+      res.json({ 
+        success: true,
+        message: `Workflow has been queued for rerun`,
+        workflow_id: run_id,
+        workflow_name: workflow_name || "Unknown",
+        repository: `${owner}/${repo}`,
+        workflow_url: workflowUrl,
+        github_response_status: rerunResponse.status
+      });
+
+    } catch (error) {
+      app.log.error("Error rerunning workflow:", {
+        workflow_id: req.body?.run_id,
+        error: error.message,
+        status: error.status,
+        stack: error.stack
+      });
+      
+      res.status(error.status || 500).json({ 
+        error: "Failed to rerun workflow", 
+        details: error.message,
+        github_error: error.status ? true : false
+      });
+    }
+  });
+
 
 };

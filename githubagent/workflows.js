@@ -36,11 +36,6 @@ export default (app) => {
         }
       };
 
-      // Log the workflow data before sending
-      console.log("=== FAILED WORKFLOW DATA FOR SLACK ===");
-      console.log(JSON.stringify(workflowData, null, 2));
-      console.log("=== END FAILED WORKFLOW DATA ===");
-
       // Send to Slack server endpoint
       await sendToSlackServer(app, workflowData);
       
@@ -99,9 +94,6 @@ export default (app) => {
     }
 
     const endpoint = `${slackServerUrl}/failed_workflow`;
-    console.log(`=== SENDING TO SLACK SERVER ===`);
-    console.log(`Endpoint: ${endpoint}`);
-    console.log(`SLACK_SERVER env var: ${slackServerUrl}`);
     
     try {
       const response = await fetch(endpoint, {
@@ -112,25 +104,13 @@ export default (app) => {
         body: JSON.stringify(workflowData)
       });
 
-      console.log(`Response status: ${response.status}`);
-      console.log(`Response statusText: ${response.statusText}`);
-
       if (!response.ok) {
         const responseText = await response.text();
-        console.log(`Error response body: ${responseText}`);
         throw new Error(`HTTP error! status: ${response.status}, body: ${responseText}`);
       }
 
-      const responseText = await response.text();
-      console.log(`Success response body: ${responseText}`);
       app.log.info(`Successfully sent workflow failure data to ${endpoint}`);
     } catch (error) {
-      console.log(`=== SLACK SERVER ERROR ===`);
-      console.log(`Error name: ${error.name}`);
-      console.log(`Error message: ${error.message}`);
-      console.log(`Error code: ${error.code}`);
-      console.log(`Error cause: ${error.cause}`);
-      console.log(`=== END SLACK SERVER ERROR ===`);
       app.log.error("Failed to send workflow data to Slack server:", error.message);
       throw error;
     }
