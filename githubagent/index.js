@@ -31,43 +31,10 @@ export default (app, { getRouter }) => {
         ],
       };
 
-        // Get comprehensive PR analysis with all file contents and diffs
-        const prAnalysis = await getComprehensivePRAnalysis(context, pull_request, files.data, diffResponse.data);
-        
-        app.log.info(`PR Analysis complete:`, {
-          totalFiles: prAnalysis.summary.totalFiles,
-          added: prAnalysis.summary.addedFiles,
-          modified: prAnalysis.summary.modifiedFiles,
-          removed: prAnalysis.summary.removedFiles
-        });
-        
-        // For now, just log the analysis - you can add LLM integration here later
-        app.log.debug('Full PR Analysis:', JSON.stringify(prAnalysis, null, 2));
-        
-        // Example: Create a single comment with summary
-        const summaryComment = `## PR Analysis Summary
-        
-**Files Changed:** ${prAnalysis.summary.totalFiles}
-- 🟢 Added: ${prAnalysis.summary.addedFiles}
-- 🟡 Modified: ${prAnalysis.summary.modifiedFiles}  
-- 🔴 Removed: ${prAnalysis.summary.removedFiles}
-
-**Ready for LLM analysis with full context and diffs!**`;
-
-        await context.octokit.issues.createComment({
-          ...context.repo(),
-          issue_number: pull_request.number,
-          body: summaryComment
-        });
-
-        app.log.info(`Successfully analyzed PR #${pull_request.number}`);
-      } catch (error) {
-        app.log.error("Error processing pull request:", {
-          pr: pull_request.number,
-          error: error.message,
-          stack: error.stack
-        });
-      }
+      res.json(stubResponse);
+    } catch (error) {
+      app.log.error("Error processing pull request:", error.message);
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -264,4 +231,4 @@ export default (app, { getRouter }) => {
 
     return parsed;
   }
-);
+};
